@@ -7,7 +7,7 @@ Spree::Order.class_eval do
 
   # in case of paypal payment, item_total cannot be 0
   def store_credit_maximum_amount
-    item_total - 0.01
+    item_total
   end
 
   # returns the maximum usable amount of store credits
