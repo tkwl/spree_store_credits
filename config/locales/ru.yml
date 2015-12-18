@@ -16,8 +16,3 @@ ru:
     was_fully_used: "был полностью использован"
     was_partially_used: "был частично использован"
     cannot_edit_used: "Cannot be edited because it has been used"
-
-    activerecord: 
-      attributes: 
-        order:
-          remove_store_credits: "Отменить использование бонуса"

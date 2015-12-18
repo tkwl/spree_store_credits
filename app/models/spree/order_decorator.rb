@@ -1,22 +1,5 @@
 Spree::Order.class_eval do
-  attr_accessor :store_credit_amount, :remove_store_credits
-
-  # the check for user? below is to ensure we don't break the
-  # admin app when creating a new order from the admin console
-  # In that case, we create an order before assigning a user
-  before_save :process_store_credit, :if => "self.user.present? && @store_credit_amount"
-  after_save :ensure_sufficient_credit, :if => "self.user.present? && !self.completed?"
-
-  validates_with StoreCreditMinimumValidator
-
-  def process_payments_with_credits!
-    if total > 0 && pending_payments.empty?
-      false
-    else
-      process_payments_without_credits!
-    end
-  end
-  alias_method_chain :process_payments!, :credits
+  attr_accessor :store_credit_amount
 
   def store_credit_amount
     adjustments.store_credits.sum(:amount).abs.to_f
@@ -36,35 +19,24 @@ Spree::Order.class_eval do
     end
   end
 
-  private
-
-  # credit or update store credit adjustment to correct value if amount specified
-  #
-  def process_store_credit
-    @store_credit_amount = BigDecimal.new(@store_credit_amount.to_s).round(2)
-
-    # store credit can't be greater than order total (not including existing credit), or the user's available credit
-    @store_credit_amount = [@store_credit_amount, user.store_credits_total, (total + store_credit_amount.abs)].min
-
-    if @store_credit_amount <= 0
-      adjustments.store_credits.destroy_all
+  def process_store_credit(amount_in_usd)
+    if amount_in_usd > 0 && amount_in_usd <= self.store_credit_maximum_usable_amount
+      self.adjustments.store_credits.create(
+        order_id: self.id, 
+        label: Spree.t(:store_credit), 
+        amount: - amount_in_usd * Spree::PriceBook.find_by(currency: self.currency).price_adjustment_factor
+      )
+      self.consume_users_credit
+      self.contents.send(:reload_totals)
+      true
     else
-      if sca = adjustments.store_credits.first
-        sca.update_attributes({:amount => -(@store_credit_amount)})
-      else
-        # create adjustment off association to prevent reload
-        sca = adjustments.store_credits.create(:label => Spree.t(:store_credit) , :amount => -(@store_credit_amount))
-      end
+      false
     end
-
-    # recalc totals and ensure payment is set to new amount
-    update_totals
-    pending_payments.first.amount = total if pending_payments.first
   end
 
   def consume_users_credit
-    return unless completed? and user.present?
-    credit_used = self.store_credit_amount
+    return unless user.present?
+    credit_used = self.store_credit_amount / Spree::PriceBook.find_by(currency: self.currency).price_adjustment_factor
 
     user.store_credits.each do |store_credit|
       break if credit_used == 0
@@ -80,17 +52,23 @@ Spree::Order.class_eval do
       end
     end
   end
-  # consume users store credit once the order has completed.
-  state_machine.after_transition :to => :complete,  :do => :consume_users_credit
 
-  # ensure that user has sufficient credits to cover adjustments
-  #
-  def ensure_sufficient_credit
-    if user.store_credits_total < store_credit_amount
-      # user's credit does not cover all adjustments.
-      adjustments.store_credits.destroy_all
+  def restore_users_credit
+    return unless user.present?
+    credit_to_restore = self.store_credit_amount / Spree::PriceBook.find_by(currency: self.currency).price_adjustment_factor
 
-      update!
+    user.store_credits.each do |store_credit|
+      break if credit_to_restore == 0
+      store_credit_restore_amount = store_credit.amount - store_credit.remaining_amount
+
+      if store_credit_restore_amount > credit_to_restore
+        store_credit.remaining_amount += credit_to_restore
+        store_credit.save
+        credit_to_restore = 0
+      else
+        credit_to_restore -= store_credit_restore_amount
+        store_credit.update_attribute(:remaining_amount, store_credit.amount)
+      end
     end
   end
 

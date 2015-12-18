@@ -1,8 +1,12 @@
 <%= f.field_container :amount do %>
-  <%= f.label :amount, Spree.t("amount")%><br />
-  <%= f.text_field :amount %>
+	<div class="form-group">
+	  <%= f.label :amount, Spree.t("amount")%><br />
+	  <%= f.text_field :amount, class: "form-control" %>
+	</div>
 <% end %>
 <%= f.field_container :reason do %>
-  <%= f.label :reason, Spree.t("reason")%><br />
-  <%= f.text_field :reason %>
+	<div class="form-group">
+	  <%= f.label :reason, Spree.t("reason")%><br />
+	  <%= f.text_field :reason, class: "form-control" %>
+	</div>
 <% end %>
